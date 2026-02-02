@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Maysie AI Assistant - Installation Script
-# Fixed version - doesn't require main.py or maysie.py in current directory
+# Fixed path typo
 
 set -e  # Exit on error
 
@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Installation directories
+# Installation directories - FIXED: consistent naming
 INSTALL_DIR="/opt/maysie"
 CONFIG_DIR="/etc/maysie"
 LOG_DIR="/var/log/maysie"
@@ -170,7 +170,7 @@ DEPS=(
 apt-get install -y "${DEPS[@]}"
 print_success "System dependencies installed"
 
-# Create directories
+# Create directories - FIXED: Ensure hotkeys directory exists
 print_status "Creating directories..."
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$CONFIG_DIR"
@@ -223,9 +223,11 @@ for dir in modules utils templates static plugins hotkeys; do
     fi
 done
 
-# Create hotkey configuration
+# Create hotkey configuration - FIXED: Use correct INSTALL_DIR
 print_status "Creating hotkey configuration..."
-cat > "$INSTALL_DIR/hotkeys/default.json" << EOF
+HOTKEYS_DIR="$INSTALL_DIR/hotkeys"
+mkdir -p "$HOTKEYS_DIR"
+cat > "$HOTKEYS_DIR/default.json" << EOF
 {
     "version": "1.0",
     "hotkeys": {
