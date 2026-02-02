@@ -123,7 +123,11 @@ create_directories() {
 # Install Python dependencies
 install_python_deps() {
     echo -e "${YELLOW}Installing Python dependencies...${NC}"
-    
+    echo -e "${YELLOW}Creating Venv...."
+    python3 -m venv venv
+    echo -e "{$YELLOW}Venv Created Activating Venv....."
+    source venv/bin/activate
+    echo "Venv activated..."    
     # Upgrade pip
     python3 -m pip install --upgrade pip
     
