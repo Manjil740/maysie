@@ -14,7 +14,6 @@ echo -e "${GREEN}================================================${NC}"
 echo -e "${GREEN}  Maysie AI Assistant - Installation${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo ""
-
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
     echo -e "${RED}Error: This script must be run as root (use sudo)${NC}"
@@ -59,7 +58,8 @@ install_dependencies() {
                 python3-venv \
                 libcairo2-dev \
                 libgirepository1.0-dev \
-                pkg-config
+                pkg-config\
+                libgirepository-1-0-dev
             ;;
         fedora)
             dnf install -y \
@@ -70,7 +70,8 @@ install_dependencies() {
                 cairo \
                 cairo-gobject-devel \
                 gobject-introspection-devel \
-                python3-cairo-devel
+                python3-cairo-devel\
+                libgirepository-1-0-dev
             ;;
         arch|manjaro)
             pacman -Sy --noconfirm \
@@ -79,7 +80,8 @@ install_dependencies() {
                 python-gobject \
                 gtk3 \
                 cairo \
-                gobject-introspection
+                gobject-introspection\
+                libgirepository-1-0-dev
             ;;
         opensuse*|sles)
             zypper install -y \
@@ -89,7 +91,8 @@ install_dependencies() {
                 typelib-1_0-Gtk-3_0 \
                 python3-cairo \
                 cairo-devel \
-                gobject-introspection-devel
+                gobject-introspection-devel\
+                libgirepository-1-0-dev
             ;;
         *)
             echo -e "${RED}Unsupported distribution: $DISTRO${NC}"
