@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Maysie AI Assistant - Installation Script
-# Fixed version with proper directory creation
+# Fixed version - doesn't require main.py or maysie.py in current directory
 
 set -e  # Exit on error
 
@@ -170,7 +170,7 @@ DEPS=(
 apt-get install -y "${DEPS[@]}"
 print_success "System dependencies installed"
 
-# Create directories - FIXED: Create hotkeys directory early
+# Create directories
 print_status "Creating directories..."
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$CONFIG_DIR"
@@ -178,7 +178,7 @@ mkdir -p "$LOG_DIR"
 mkdir -p "$INSTALL_DIR/data"
 mkdir -p "$INSTALL_DIR/cache"
 mkdir -p "$INSTALL_DIR/plugins"
-mkdir -p "$INSTALL_DIR/hotkeys"  # This was missing!
+mkdir -p "$INSTALL_DIR/hotkeys"
 mkdir -p "$INSTALL_DIR/modules"
 mkdir -p "$INSTALL_DIR/utils"
 mkdir -p "$INSTALL_DIR/templates"
@@ -199,38 +199,31 @@ print_status "Cleaning up previous installation..."
 rm -rf "$INSTALL_DIR"/* 2>/dev/null || true
 
 print_status "Copying source files..."
-# Copy all Python files from current directory
-find . -maxdepth 1 -name "*.py" -exec cp {} "$INSTALL_DIR/" \; 2>/dev/null || true
+# Copy all Python files from current directory and subdirectories
+find . -name "*.py" -exec cp --parents {} "$INSTALL_DIR/" \; 2>/dev/null || true
 
 # Copy configuration files
-find . -maxdepth 1 -name "*.json" -exec cp {} "$INSTALL_DIR/" \; 2>/dev/null || true
-find . -maxdepth 1 -name "*.yaml" -exec cp {} "$INSTALL_DIR/" \; 2>/dev/null || true
-find . -maxdepth 1 -name "*.yml" -exec cp {} "$INSTALL_DIR/" \; 2>/dev/null || true
+find . -name "*.json" -exec cp --parents {} "$INSTALL_DIR/" \; 2>/dev/null || true
+find . -name "*.yaml" -exec cp --parents {} "$INSTALL_DIR/" \; 2>/dev/null || true
+find . -name "*.yml" -exec cp --parents {} "$INSTALL_DIR/" \; 2>/dev/null || true
 
 # Copy text files
-find . -maxdepth 1 -name "*.txt" -exec cp {} "$INSTALL_DIR/" \; 2>/dev/null || true
-find . -maxdepth 1 -name "*.md" -exec cp {} "$INSTALL_DIR/" \; 2>/dev/null || true
+find . -name "*.txt" -exec cp --parents {} "$INSTALL_DIR/" \; 2>/dev/null || true
+find . -name "*.md" -exec cp --parents {} "$INSTALL_DIR/" \; 2>/dev/null || true
 
-# Copy directories if they exist
+# Copy all other important files
+find . -name "*.cfg" -exec cp --parents {} "$INSTALL_DIR/" \; 2>/dev/null || true
+find . -name "*.conf" -exec cp --parents {} "$INSTALL_DIR/" \; 2>/dev/null || true
+find . -name "*.ini" -exec cp --parents {} "$INSTALL_DIR/" \; 2>/dev/null || true
+
+# Copy directory structure
 for dir in modules utils templates static plugins hotkeys; do
     if [ -d "./$dir" ]; then
         cp -r "./$dir" "$INSTALL_DIR/"
     fi
 done
 
-# Make sure main entry point exists
-if [ ! -f "$INSTALL_DIR/maysie.py" ]; then
-    if [ -f "./main.py" ]; then
-        cp ./main.py "$INSTALL_DIR/maysie.py"
-    elif [ -f "./maysie.py" ]; then
-        cp ./maysie.py "$INSTALL_DIR/"
-    else
-        print_error "No main Python file found (maysie.py or main.py)"
-        exit 1
-    fi
-fi
-
-# Create hotkey configuration - FIXED: Directory now exists
+# Create hotkey configuration
 print_status "Creating hotkey configuration..."
 cat > "$INSTALL_DIR/hotkeys/default.json" << EOF
 {
@@ -304,9 +297,78 @@ EOF
 
 chown $CURRENT_USER:$CURRENT_USER "$CURRENT_HOME/.xbindkeysrc"
 
-# Create hotkey handler script if it doesn't exist
-if [ ! -f "$INSTALL_DIR/hotkey_handler.py" ]; then
-    cat > "$INSTALL_DIR/hotkey_handler.py" << 'EOF'
+# Create main maysie.py file if it doesn't exist
+print_status "Checking for main application file..."
+if [ ! -f "$INSTALL_DIR/maysie.py" ]; then
+    print_warning "maysie.py not found, creating minimal starter..."
+    cat > "$INSTALL_DIR/maysie.py" << 'EOF'
+#!/usr/bin/env python3
+"""
+Maysie AI Assistant - Main Entry Point
+This is a minimal starter file. Replace with your actual maysie.py
+"""
+
+import os
+import sys
+import logging
+from pathlib import Path
+
+# Add the installation directory to Python path
+INSTALL_DIR = Path(__file__).parent
+sys.path.insert(0, str(INSTALL_DIR))
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def main():
+    """Main entry point for Maysie AI Assistant"""
+    logger.info("Starting Maysie AI Assistant...")
+    logger.info(f"Installation directory: {INSTALL_DIR}")
+    
+    try:
+        # Try to import and run the actual application
+        from maysie_core import MaysieApp
+        app = MaysieApp()
+        app.run()
+    except ImportError as e:
+        logger.error(f"Failed to import Maysie modules: {e}")
+        logger.error("Please ensure all modules are properly installed.")
+        logger.info("Checking for alternative entry points...")
+        
+        # Try other common entry points
+        entry_points = ["main.py", "app.py", "run.py", "start.py"]
+        for entry in entry_points:
+            entry_path = INSTALL_DIR / entry
+            if entry_path.exists():
+                logger.info(f"Found alternative entry point: {entry}")
+                # Execute the found entry point
+                exec(open(entry_path).read())
+                return
+        
+        logger.error("No valid entry point found. Please check your installation.")
+        logger.info("Available Python files in installation directory:")
+        for py_file in INSTALL_DIR.glob("*.py"):
+            logger.info(f"  - {py_file.name}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+EOF
+    print_success "Created minimal maysie.py starter file"
+else
+    print_success "Found existing maysie.py"
+fi
+
+# Create hotkey handler script
+print_status "Creating hotkey handler..."
+cat > "$INSTALL_DIR/hotkey_handler.py" << 'EOF'
 #!/usr/bin/env python3
 """
 Hotkey handler for Maysie AI Assistant
@@ -358,14 +420,15 @@ def main():
 if __name__ == "__main__":
     main()
 EOF
-    chmod +x "$INSTALL_DIR/hotkey_handler.py"
-fi
+chmod +x "$INSTALL_DIR/hotkey_handler.py"
 
 # Copy requirements if exists
 if [ -f "./requirements.txt" ]; then
     cp ./requirements.txt "$INSTALL_DIR/"
+    print_success "Copied requirements.txt"
 else
     # Create default requirements
+    print_status "Creating default requirements.txt..."
     cat > "$INSTALL_DIR/requirements.txt" << 'EOF'
 aiohttp==3.9.0
 asyncio==3.4.3
@@ -405,6 +468,7 @@ python-xlib==0.33
 pyautogui==0.9.54
 pillow==10.4.0
 EOF
+    print_success "Created default requirements.txt"
 fi
 
 # Set permissions
@@ -415,7 +479,7 @@ chmod -R 755 "$INSTALL_DIR/modules" 2>/dev/null || true
 chmod -R 755 "$INSTALL_DIR/utils" 2>/dev/null || true
 chmod -R 755 "$INSTALL_DIR/hotkeys" 2>/dev/null || true
 
-print_success "Files copied"
+print_success "Files copied and configured"
 
 # Install Python dependencies
 print_status "Installing Python dependencies..."
