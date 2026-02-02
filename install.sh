@@ -65,7 +65,6 @@ install_dependencies() {
                 libcairo2-dev \
                 libgirepository1.0-dev \
                 gobject-introspection \
-                gobject-introspection-1.0 \
                 libgirepository-1.0-1 \
                 pkg-config \
                 build-essential \
@@ -80,7 +79,10 @@ install_dependencies() {
                 systemd \
                 ca-certificates \
                 libffi-dev \
-                libssl-dev
+                libssl-dev \
+                meson \
+                ninja-build \
+                libgirepository-1.0-dev
             ;;
         fedora|rhel|centos)
             echo -e "${YELLOW}Installing core dependencies...${NC}"
@@ -121,7 +123,6 @@ install_dependencies() {
                 gtk3 \
                 cairo \
                 gobject-introspection \
-                gobject-introspection-runtime \
                 base-devel \
                 curl \
                 wget \
@@ -171,7 +172,7 @@ install_dependencies() {
             # Try generic installation
             if command -v apt-get &> /dev/null; then
                 apt-get update
-                apt-get install -y python3 python3-pip python3-venv python3-dev python3-gi gir1.2-glib-2.0
+                apt-get install -y python3 python3-pip python3-venv python3-dev python3-gi gir1.2-glib-2.0 gobject-introspection
             elif command -v dnf &> /dev/null; then
                 dnf install -y python3 python3-pip python3-devel python3-gobject gobject-introspection
             elif command -v yum &> /dev/null; then
@@ -230,6 +231,37 @@ create_directories() {
     echo -e "${GREEN}✓ Directories created${NC}"
 }
 
+# Alternative PyGObject installation for problematic systems
+install_pygobject_alternative() {
+    echo -e "${YELLOW}Installing PyGObject via alternative method...${NC}"
+    
+    # Try using apt to install system python packages
+    if command -v apt &> /dev/null; then
+        apt-get install -y python3-gi python3-gi-cairo python3-cairo python3-cairo-dev
+        return 0
+    fi
+    
+    # Fallback: try pip with specific build options
+    echo -e "${YELLOW}Trying pip installation with specific flags...${NC}"
+    
+    # First install build dependencies
+    apt-get install -y libgirepository1.0-dev pkg-config python3-dev 2>/dev/null || true
+    
+    # Install pycairo first
+    pip install pycairo==1.23.0 --no-cache-dir
+    
+    # Try PyGObject with specific version
+    pip install PyGObject==3.42.0 --no-cache-dir --no-binary :all: || {
+        echo -e "${YELLOW}PyGObject installation still failed, trying older version...${NC}"
+        pip install PyGObject==3.40.1 --no-cache-dir --no-binary :all: || {
+            echo -e "${RED}PyGObject installation failed completely${NC}"
+            return 1
+        }
+    }
+    
+    return 0
+}
+
 # Install Python dependencies with fallback
 install_python_deps() {
     echo -e "${YELLOW}Installing Python dependencies...${NC}"
@@ -250,70 +282,43 @@ install_python_deps() {
     echo -e "${YELLOW}Upgrading pip and setuptools...${NC}"
     pip install --upgrade pip setuptools wheel
     
-    # First, try to install system Python packages if available
-    echo -e "${YELLOW}Checking for system Python packages...${NC}"
-    
-    case $DISTRO in
-        ubuntu|debian)
-            # On Debian/Ubuntu, prefer system packages for GTK dependencies
-            apt-get install -y python3-pygi python3-pygi-cairo python3-cairo 2>/dev/null || true
-            ;;
-    esac
-    
-    # Install dependencies with specific versions that work well together
-    echo -e "${YELLOW}Installing core Python packages...${NC}"
-    
-    # Install PyGObject first with system package if possible
-    if python3 -c "import gi" 2>/dev/null; then
-        echo -e "${GREEN}✓ PyGObject already available${NC}"
+    # Try system PyGObject first
+    echo -e "${YELLOW}Checking for PyGObject...${NC}"
+    if python3 -c "import gi; print('PyGObject version:', gi.version_info)" 2>/dev/null; then
+        echo -e "${GREEN}✓ PyGObject already available via system${NC}"
     else
-        echo -e "${YELLOW}Installing PyGObject via pip...${NC}"
-        # Try with specific version and build dependencies
-        pip install pycairo==1.23.0 --no-cache-dir
-        pip install PyGObject==3.42.0 --no-cache-dir || {
-            echo -e "${YELLOW}PyGObject installation via pip failed, trying alternative...${NC}"
-            # If pip installation fails, try to install from system
-            case $DISTRO in
-                ubuntu|debian)
-                    apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0
-                    ;;
-                fedora|rhel|centos)
-                    dnf install -y python3-gobject python3-cairo-devel
-                    ;;
-                arch|manjaro)
-                    pacman -Sy --noconfirm python-gobject python-cairo
-                    ;;
-            esac
-        }
+        echo -e "${YELLOW}PyGObject not found, installing...${NC}"
+        if ! install_pygobject_alternative; then
+            echo -e "${RED}Failed to install PyGObject. Some features may not work.${NC}"
+            echo -e "${YELLOW}Continuing with other dependencies...${NC}"
+        fi
     fi
     
-    # Now install the rest of the dependencies
-    echo -e "${YELLOW}Installing remaining dependencies...${NC}"
+    # Install other dependencies
+    echo -e "${YELLOW}Installing other dependencies...${NC}"
     
-    # Create a minimal requirements file if it doesn't exist
-    if [ ! -f "/opt/maysie/requirements.txt" ]; then
-        cat > /opt/maysie/requirements.txt << 'EOF'
-aiohttp>=3.9.0,<4.0.0
-asyncio>=3.4.3
-cryptography>=41.0.0,<43.0.0
-PyYAML>=6.0.1,<7.0.0
-pynput>=1.7.6,<1.8.0
-psutil>=5.9.0,<6.0.0
-PyGObject>=3.42.0,<3.43.0
-pycairo>=1.23.0,<1.24.0
-Flask>=3.0.0,<3.1.0
-Flask-CORS>=4.0.0,<5.0.0
-Werkzeug>=3.0.0,<4.0.0
-openai>=1.3.0,<1.4.0
-google-generativeai>=0.3.0,<0.4.0
-anthropic>=0.7.0,<0.8.0
-python-daemon>=3.0.1,<3.1.0
-dbus-python>=1.3.2,<1.4.0
-python-dotenv>=1.0.0,<2.0.0
-requests>=2.31.0,<3.0.0
-jsonschema>=4.20.0,<5.0.0
+    # Create requirements file with compatible versions
+    cat > /opt/maysie/requirements.txt << 'EOF'
+aiohttp==3.9.0
+asyncio==3.4.3
+cryptography==41.0.0
+PyYAML==6.0.1
+pynput==1.7.6
+psutil==5.9.0
+Flask==3.0.0
+Flask-CORS==4.0.0
+Werkzeug==3.0.0
+openai==1.3.0
+google-generativeai==0.3.0
+anthropic==0.7.0
+python-daemon==3.0.1
+dbus-python==1.3.2
+python-dotenv==1.0.0
+requests==2.31.0
+jsonschema==4.20.0
+colorama==0.4.6
+python-dateutil==2.8.2
 EOF
-    fi
     
     # Install with retry logic
     MAX_RETRIES=3
@@ -332,20 +337,33 @@ EOF
         if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
             echo -e "${YELLOW}Installation failed, retrying in 5 seconds...${NC}"
             sleep 5
-            
-            # Try installing problematic packages individually
-            echo -e "${YELLOW}Trying individual package installation...${NC}"
-            pip install aiohttp==3.9.0 --no-cache-dir || true
-            pip install cryptography==41.0.0 --no-cache-dir || true
-            pip install PyYAML==6.0.1 --no-cache-dir || true
         else
-            echo -e "${YELLOW}⚠ Some packages failed to install, continuing anyway...${NC}"
+            echo -e "${YELLOW}⚠ Some packages failed to install, trying individually...${NC}"
+            
+            # Install packages individually
+            for package in \
+                aiohttp==3.9.0 \
+                cryptography==41.0.0 \
+                PyYAML==6.0.1 \
+                pynput==1.7.6 \
+                psutil==5.9.0 \
+                Flask==3.0.0 \
+                Flask-CORS==4.0.0 \
+                Werkzeug==3.0.0 \
+                openai==1.3.0 \
+                google-generativeai==0.3.0 \
+                anthropic==0.7.0 \
+                python-daemon==3.0.1 \
+                dbus-python==1.3.2 \
+                python-dotenv==1.0.0 \
+                requests==2.31.0 \
+                jsonschema==4.20.0
+            do
+                echo -e "${YELLOW}Installing $package...${NC}"
+                pip install "$package" --no-cache-dir || echo -e "${YELLOW}Failed to install $package${NC}"
+            done
         fi
     done
-    
-    # Install additional useful packages
-    echo -e "${YELLOW}Installing additional utilities...${NC}"
-    pip install colorama==0.4.6 python-dateutil==2.8.2 --no-cache-dir || true
     
     # Verify critical packages
     echo -e "${YELLOW}Verifying critical packages...${NC}"
@@ -650,31 +668,26 @@ test_installation() {
     TEST_SCRIPT=$(cat << 'EOF'
 import sys
 print("Python version:", sys.version)
-try:
-    import gi
-    print("✓ PyGObject import successful")
-except ImportError as e:
-    print(f"✗ PyGObject import failed: {e}")
 
-try:
-    import dbus
-    print("✓ DBus import successful")
-except ImportError as e:
-    print(f"✗ DBus import failed: {e}")
+critical_packages = {
+    "gi": "PyGObject/GTK",
+    "dbus": "DBus",
+    "pynput": "Keyboard input",
+    "aiohttp": "Async HTTP",
+    "cryptography": "Encryption",
+    "flask": "Web interface"
+}
 
-try:
-    import pynput
-    print("✓ pynput import successful")
-except ImportError as e:
-    print(f"✗ pynput import failed: {e}")
+all_good = True
+for module, description in critical_packages.items():
+    try:
+        __import__(module)
+        print(f"✓ {description} import successful")
+    except ImportError as e:
+        print(f"✗ {description} import failed: {e}")
+        all_good = False
 
-try:
-    import aiohttp
-    print("✓ aiohttp import successful")
-except ImportError as e:
-    print(f"✗ aiohttp import failed: {e}")
-
-print("\nCore functionality test complete")
+print("\n" + ("✓ All critical packages verified" if all_good else "⚠ Some packages failed to import"))
 EOF
     )
     
