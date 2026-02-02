@@ -59,11 +59,14 @@ install_dependencies() {
                 python3-gi \
                 python3-gi-cairo \
                 gir1.2-gtk-3.0 \
+                gir1.2-glib-2.0 \
                 python3-cairo \
                 python3-cairo-dev \
                 libcairo2-dev \
                 libgirepository1.0-dev \
                 gobject-introspection \
+                gobject-introspection-1.0 \
+                libgirepository-1.0-1 \
                 pkg-config \
                 build-essential \
                 curl \
@@ -75,7 +78,9 @@ install_dependencies() {
                 libdbus-glib-1-dev \
                 sudo \
                 systemd \
-                ca-certificates
+                ca-certificates \
+                libffi-dev \
+                libssl-dev
             ;;
         fedora|rhel|centos)
             echo -e "${YELLOW}Installing core dependencies...${NC}"
@@ -89,6 +94,7 @@ install_dependencies() {
                 cairo-devel \
                 cairo-gobject-devel \
                 gobject-introspection-devel \
+                gobject-introspection \
                 gcc \
                 gcc-c++ \
                 make \
@@ -101,7 +107,9 @@ install_dependencies() {
                 dbus-glib-devel \
                 sudo \
                 systemd \
-                ca-certificates
+                ca-certificates \
+                libffi-devel \
+                openssl-devel
             ;;
         arch|manjaro)
             echo -e "${YELLOW}Installing core dependencies...${NC}"
@@ -113,6 +121,7 @@ install_dependencies() {
                 gtk3 \
                 cairo \
                 gobject-introspection \
+                gobject-introspection-runtime \
                 base-devel \
                 curl \
                 wget \
@@ -122,7 +131,9 @@ install_dependencies() {
                 dbus-glib \
                 sudo \
                 systemd \
-                ca-certificates
+                ca-certificates \
+                libffi \
+                openssl
             ;;
         opensuse*|sles)
             echo -e "${YELLOW}Installing core dependencies...${NC}"
@@ -133,9 +144,11 @@ install_dependencies() {
                 python3-devel \
                 python3-gobject \
                 typelib-1_0-Gtk-3_0 \
+                typelib-1_0-GLib-2_0 \
                 python3-cairo \
                 cairo-devel \
                 gobject-introspection-devel \
+                gobject-introspection \
                 gcc \
                 gcc-c++ \
                 make \
@@ -148,7 +161,9 @@ install_dependencies() {
                 dbus-1-glib-devel \
                 sudo \
                 systemd \
-                ca-certificates
+                ca-certificates \
+                libffi-devel \
+                libopenssl-devel
             ;;
         *)
             echo -e "${RED}Unsupported distribution: $DISTRO${NC}"
@@ -156,15 +171,15 @@ install_dependencies() {
             # Try generic installation
             if command -v apt-get &> /dev/null; then
                 apt-get update
-                apt-get install -y python3 python3-pip python3-venv python3-dev python3-gi
+                apt-get install -y python3 python3-pip python3-venv python3-dev python3-gi gir1.2-glib-2.0
             elif command -v dnf &> /dev/null; then
-                dnf install -y python3 python3-pip python3-devel python3-gobject
+                dnf install -y python3 python3-pip python3-devel python3-gobject gobject-introspection
             elif command -v yum &> /dev/null; then
-                yum install -y python3 python3-pip python3-devel python3-gobject
+                yum install -y python3 python3-pip python3-devel python3-gobject gobject-introspection
             elif command -v pacman &> /dev/null; then
-                pacman -Sy --noconfirm python python-pip python-virtualenv python-gobject
+                pacman -Sy --noconfirm python python-pip python-virtualenv python-gobject gobject-introspection
             elif command -v zypper &> /dev/null; then
-                zypper install -y python3 python3-pip python3-venv python3-devel python3-gobject
+                zypper install -y python3 python3-pip python3-venv python3-devel python3-gobject gobject-introspection
             else
                 echo -e "${RED}Could not find a supported package manager${NC}"
                 exit 1
@@ -215,7 +230,7 @@ create_directories() {
     echo -e "${GREEN}✓ Directories created${NC}"
 }
 
-# Install Python dependencies
+# Install Python dependencies with fallback
 install_python_deps() {
     echo -e "${YELLOW}Installing Python dependencies...${NC}"
     
@@ -235,49 +250,128 @@ install_python_deps() {
     echo -e "${YELLOW}Upgrading pip and setuptools...${NC}"
     pip install --upgrade pip setuptools wheel
     
-    # Install dependencies from requirements.txt
-    if [ -f "/opt/maysie/requirements.txt" ]; then
-        echo -e "${YELLOW}Installing from requirements.txt...${NC}"
-        pip install -r /opt/maysie/requirements.txt
+    # First, try to install system Python packages if available
+    echo -e "${YELLOW}Checking for system Python packages...${NC}"
+    
+    case $DISTRO in
+        ubuntu|debian)
+            # On Debian/Ubuntu, prefer system packages for GTK dependencies
+            apt-get install -y python3-pygi python3-pygi-cairo python3-cairo 2>/dev/null || true
+            ;;
+    esac
+    
+    # Install dependencies with specific versions that work well together
+    echo -e "${YELLOW}Installing core Python packages...${NC}"
+    
+    # Install PyGObject first with system package if possible
+    if python3 -c "import gi" 2>/dev/null; then
+        echo -e "${GREEN}✓ PyGObject already available${NC}"
     else
-        echo -e "${YELLOW}requirements.txt not found, installing individual packages...${NC}"
-        pip install \
-            aiohttp==3.9.0 \
-            asyncio==3.4.3 \
-            cryptography==41.0.0 \
-            PyYAML==6.0.1 \
-            pynput==1.7.6 \
-            psutil==5.9.0 \
-            PyGObject==3.42.0 \
-            pycairo==1.23.0 \
-            Flask==3.0.0 \
-            Flask-CORS==4.0.0 \
-            Werkzeug==3.0.0 \
-            openai==1.3.0 \
-            google-generativeai==0.3.0 \
-            anthropic==0.7.0 \
-            python-daemon==3.0.1 \
-            dbus-python==1.3.2 \
-            python-dotenv==1.0.0 \
-            requests==2.31.0 \
-            jsonschema==4.20.0 \
-            python-dateutil==2.8.2 \
-            python-socketio==5.9.0 \
-            eventlet==0.33.3 \
-            colorama==0.4.6
+        echo -e "${YELLOW}Installing PyGObject via pip...${NC}"
+        # Try with specific version and build dependencies
+        pip install pycairo==1.23.0 --no-cache-dir
+        pip install PyGObject==3.42.0 --no-cache-dir || {
+            echo -e "${YELLOW}PyGObject installation via pip failed, trying alternative...${NC}"
+            # If pip installation fails, try to install from system
+            case $DISTRO in
+                ubuntu|debian)
+                    apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0
+                    ;;
+                fedora|rhel|centos)
+                    dnf install -y python3-gobject python3-cairo-devel
+                    ;;
+                arch|manjaro)
+                    pacman -Sy --noconfirm python-gobject python-cairo
+                    ;;
+            esac
+        }
     fi
+    
+    # Now install the rest of the dependencies
+    echo -e "${YELLOW}Installing remaining dependencies...${NC}"
+    
+    # Create a minimal requirements file if it doesn't exist
+    if [ ! -f "/opt/maysie/requirements.txt" ]; then
+        cat > /opt/maysie/requirements.txt << 'EOF'
+aiohttp>=3.9.0,<4.0.0
+asyncio>=3.4.3
+cryptography>=41.0.0,<43.0.0
+PyYAML>=6.0.1,<7.0.0
+pynput>=1.7.6,<1.8.0
+psutil>=5.9.0,<6.0.0
+PyGObject>=3.42.0,<3.43.0
+pycairo>=1.23.0,<1.24.0
+Flask>=3.0.0,<3.1.0
+Flask-CORS>=4.0.0,<5.0.0
+Werkzeug>=3.0.0,<4.0.0
+openai>=1.3.0,<1.4.0
+google-generativeai>=0.3.0,<0.4.0
+anthropic>=0.7.0,<0.8.0
+python-daemon>=3.0.1,<3.1.0
+dbus-python>=1.3.2,<1.4.0
+python-dotenv>=1.0.0,<2.0.0
+requests>=2.31.0,<3.0.0
+jsonschema>=4.20.0,<5.0.0
+EOF
+    fi
+    
+    # Install with retry logic
+    MAX_RETRIES=3
+    RETRY_COUNT=0
+    
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        echo -e "${YELLOW}Attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES...${NC}"
+        
+        if pip install -r /opt/maysie/requirements.txt --no-cache-dir; then
+            echo -e "${GREEN}✓ All dependencies installed successfully${NC}"
+            break
+        fi
+        
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            echo -e "${YELLOW}Installation failed, retrying in 5 seconds...${NC}"
+            sleep 5
+            
+            # Try installing problematic packages individually
+            echo -e "${YELLOW}Trying individual package installation...${NC}"
+            pip install aiohttp==3.9.0 --no-cache-dir || true
+            pip install cryptography==41.0.0 --no-cache-dir || true
+            pip install PyYAML==6.0.1 --no-cache-dir || true
+        else
+            echo -e "${YELLOW}⚠ Some packages failed to install, continuing anyway...${NC}"
+        fi
+    done
+    
+    # Install additional useful packages
+    echo -e "${YELLOW}Installing additional utilities...${NC}"
+    pip install colorama==0.4.6 python-dateutil==2.8.2 --no-cache-dir || true
     
     # Verify critical packages
     echo -e "${YELLOW}Verifying critical packages...${NC}"
-    if python3 -c "import gi; import dbus; import pynput; print('✓ Critical imports successful')" 2>/dev/null; then
-        echo -e "${GREEN}✓ Python dependencies verified${NC}"
+    
+    CRITICAL_PACKAGES=("gi" "dbus" "pynput" "aiohttp" "cryptography")
+    ALL_GOOD=true
+    
+    for package in "${CRITICAL_PACKAGES[@]}"; do
+        if python3 -c "import $package" 2>/dev/null; then
+            echo -e "${GREEN}✓ $package import successful${NC}"
+        else
+            echo -e "${YELLOW}⚠ $package import failed${NC}"
+            ALL_GOOD=false
+        fi
+    done
+    
+    if $ALL_GOOD; then
+        echo -e "${GREEN}✓ All critical packages verified${NC}"
     else
-        echo -e "${YELLOW}⚠ Some packages may need manual installation${NC}"
+        echo -e "${YELLOW}⚠ Some packages may need manual attention${NC}"
+        echo -e "${YELLOW}  Maysie might still work, but some features may be limited${NC}"
     fi
     
     deactivate
     
-    echo -e "${GREEN}✓ Python dependencies installed${NC}"
+    echo -e "${GREEN}✓ Python dependencies installation completed${NC}"
 }
 
 # Copy files
@@ -288,24 +382,41 @@ copy_files() {
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
     # Check if we're running from the source directory
-    if [ ! -f "$SCRIPT_DIR/maysie/__init__.py" ]; then
+    if [ ! -f "$SCRIPT_DIR/maysie/__init__.py" ] && [ ! -d "$SCRIPT_DIR/maysie" ]; then
         echo -e "${RED}Error: Cannot find Maysie source files${NC}"
         echo -e "${YELLOW}Please run this script from the Maysie directory${NC}"
         exit 1
     fi
     
+    # Clear existing installation
+    echo -e "${YELLOW}Cleaning up previous installation...${NC}"
+    rm -rf /opt/maysie/maysie 2>/dev/null || true
+    
     # Copy the entire maysie directory structure
     echo -e "${YELLOW}Copying source files...${NC}"
-    cp -r "$SCRIPT_DIR/maysie" /opt/maysie/
-    cp "$SCRIPT_DIR/requirements.txt" /opt/maysie/ 2>/dev/null || true
+    if [ -d "$SCRIPT_DIR/maysie" ]; then
+        cp -r "$SCRIPT_DIR/maysie" /opt/maysie/
+    else
+        # If maysie directory doesn't exist, create structure
+        mkdir -p /opt/maysie/maysie
+        # Copy individual files if they exist
+        for file in "$SCRIPT_DIR"/*.py; do
+            [ -f "$file" ] && cp "$file" /opt/maysie/maysie/ 2>/dev/null || true
+        done
+    fi
     
-    # Copy service file
+    # Copy requirements.txt if it exists
+    if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
+        cp "$SCRIPT_DIR/requirements.txt" /opt/maysie/
+    fi
+    
+    # Copy service file if it exists
     if [ -f "$SCRIPT_DIR/maysie.service" ]; then
         cp "$SCRIPT_DIR/maysie.service" /opt/maysie/
     fi
     
-    # Make scripts executable
-    chmod +x /opt/maysie/maysie/*.py 2>/dev/null || true
+    # Make Python files readable
+    find /opt/maysie -name "*.py" -exec chmod 644 {} \; 2>/dev/null || true
     
     # Set permissions
     chown -R $ACTUAL_USER:$ACTUAL_USER /opt/maysie
@@ -319,28 +430,29 @@ setup_python_path() {
     
     # Get Python version
     PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2 | cut -d. -f1,2)
-    PYTHON_PATH="/usr/local/lib/python$PYTHON_VERSION/dist-packages"
     
-    # Create directory if it doesn't exist
-    mkdir -p "$PYTHON_PATH"
+    # Create .pth file in venv
+    VENV_SITE_PACKAGES="/opt/maysie/venv/lib/python$PYTHON_VERSION/site-packages"
     
-    # Create .pth file to add /opt/maysie to Python path
-    echo "/opt/maysie" > "$PYTHON_PATH/maysie.pth"
-    
-    echo -e "${GREEN}✓ Python path configured${NC}"
+    if [ -d "$VENV_SITE_PACKAGES" ]; then
+        echo "/opt/maysie" > "$VENV_SITE_PACKAGES/maysie.pth"
+        echo -e "${GREEN}✓ Python path configured in virtual environment${NC}"
+    else
+        echo -e "${YELLOW}⚠ Could not find virtual environment site-packages${NC}"
+    fi
 }
 
 # Setup systemd service
 setup_service() {
     echo -e "${YELLOW}Setting up systemd service...${NC}"
     
-    SERVICE_FILE="/opt/maysie/maysie.service"
-    if [ ! -f "$SERVICE_FILE" ]; then
-        # Create service file
-        cat > "$SERVICE_FILE" << EOF
+    SERVICE_FILE="/etc/systemd/system/maysie.service"
+    
+    # Create service file
+    cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=Maysie AI Assistant
-After=network.target dbus.service
+After=network.target dbus.service graphical-session.target
 Wants=network.target dbus.service
 
 [Service]
@@ -348,6 +460,9 @@ Type=simple
 User=$ACTUAL_USER
 Group=$ACTUAL_USER
 WorkingDirectory=/opt/maysie
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/$ACTUAL_USER/.Xauthority"
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u $ACTUAL_USER)/bus"
 Environment="PATH=/opt/maysie/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONPATH=/opt/maysie"
 ExecStart=/opt/maysie/venv/bin/python3 -m maysie.core.service
@@ -359,28 +474,17 @@ SyslogIdentifier=maysie
 
 # Security
 NoNewPrivileges=true
-ProtectSystem=strict
 PrivateTmp=true
 PrivateDevices=true
 ProtectHome=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-ReadWritePaths=/var/log/maysie /etc/maysie /tmp/maysie
+ReadWritePaths=/var/log/maysie /etc/maysie /tmp/maysie /home/$ACTUAL_USER/.config
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOF
-    fi
-    
-    # Copy service file to systemd
-    cp "$SERVICE_FILE" /etc/systemd/system/maysie.service
-    
-    # Replace placeholders in service file
-    sed -i "s/%u/$ACTUAL_USER/g; s/%U/$(id -u $ACTUAL_USER)/g" /etc/systemd/system/maysie.service
     
     # Set permissions
-    chmod 644 /etc/systemd/system/maysie.service
+    chmod 644 "$SERVICE_FILE"
     
     # Reload systemd
     systemctl daemon-reload
@@ -470,6 +574,15 @@ EOF
         chown $ACTUAL_USER:$ACTUAL_USER "$API_KEY_FILE"
         chmod 600 "$API_KEY_FILE"
     fi
+    
+    # Create encryption key file
+    ENCRYPTION_KEY_FILE="/etc/maysie/.key"
+    if [ ! -f "$ENCRYPTION_KEY_FILE" ]; then
+        python3 -c "from cryptography.fernet import Fernet; key = Fernet.generate_key(); print(key.decode())" > "$ENCRYPTION_KEY_FILE"
+        chown $ACTUAL_USER:$ACTUAL_USER "$ENCRYPTION_KEY_FILE"
+        chmod 600 "$ENCRYPTION_KEY_FILE"
+        echo -e "${GREEN}✓ Encryption key created${NC}"
+    fi
 }
 
 # Create log rotation config
@@ -488,9 +601,6 @@ setup_log_rotation() {
     notifempty
     create 644 $ACTUAL_USER $ACTUAL_USER
     sharedscripts
-    postrotate
-        systemctl reload maysie.service > /dev/null 2>&1 || true
-    endscript
 }
 EOF
     
@@ -501,26 +611,78 @@ EOF
 start_service() {
     echo -e "${YELLOW}Starting Maysie service...${NC}"
     
+    # Stop if already running
+    systemctl stop maysie.service 2>/dev/null || true
+    
     # Enable service
     systemctl enable maysie.service
     
     # Start service
+    echo -e "${YELLOW}Starting service...${NC}"
     if systemctl start maysie.service; then
         echo -e "${GREEN}✓ Maysie service started successfully${NC}"
     else
-        echo -e "${YELLOW}⚠ Service failed to start, checking status...${NC}"
-        systemctl status maysie.service --no-pager
+        echo -e "${YELLOW}⚠ Service failed to start${NC}"
         return 1
     fi
     
-    # Check status
-    sleep 3
+    # Wait a moment and check status
+    sleep 2
     if systemctl is-active --quiet maysie.service; then
         echo -e "${GREEN}✓ Maysie is running${NC}"
     else
-        echo -e "${YELLOW}⚠ Service is not active${NC}"
-        echo -e "${YELLOW}  Check logs: journalctl -u maysie.service${NC}"
+        echo -e "${YELLOW}⚠ Service is not active, checking logs...${NC}"
+        journalctl -u maysie.service -n 20 --no-pager
+        return 1
     fi
+}
+
+# Test critical functionality
+test_installation() {
+    echo -e "${YELLOW}Testing installation...${NC}"
+    
+    cd /opt/maysie
+    source venv/bin/activate
+    
+    # Test Python imports
+    echo -e "${YELLOW}Testing Python imports...${NC}"
+    
+    TEST_SCRIPT=$(cat << 'EOF'
+import sys
+print("Python version:", sys.version)
+try:
+    import gi
+    print("✓ PyGObject import successful")
+except ImportError as e:
+    print(f"✗ PyGObject import failed: {e}")
+
+try:
+    import dbus
+    print("✓ DBus import successful")
+except ImportError as e:
+    print(f"✗ DBus import failed: {e}")
+
+try:
+    import pynput
+    print("✓ pynput import successful")
+except ImportError as e:
+    print(f"✗ pynput import failed: {e}")
+
+try:
+    import aiohttp
+    print("✓ aiohttp import successful")
+except ImportError as e:
+    print(f"✗ aiohttp import failed: {e}")
+
+print("\nCore functionality test complete")
+EOF
+    )
+    
+    python3 -c "$TEST_SCRIPT"
+    
+    deactivate
+    
+    echo -e "${GREEN}✓ Installation test completed${NC}"
 }
 
 # Install complete message
@@ -541,11 +703,16 @@ show_completion() {
     echo -e "  ${GREEN}sudo systemctl restart maysie${NC} - Restart service"
     echo -e "  ${GREEN}sudo systemctl stop maysie${NC}    - Stop service"
     echo ""
+    echo -e "${YELLOW}Installation directory:${NC} ${GREEN}/opt/maysie${NC}"
+    echo -e "${YELLOW}Configuration directory:${NC} ${GREEN}/etc/maysie${NC}"
+    echo -e "${YELLOW}Log directory:${NC} ${GREEN}/var/log/maysie${NC}"
+    echo ""
     echo -e "${YELLOW}Troubleshooting:${NC}"
     echo -e "If Maysie doesn't start, check:"
     echo -e "  1. API keys are configured in debug mode"
-    echo -e "  2. Virtual environment is set up: /opt/maysie/venv"
-    echo -e "  3. Dependencies are installed: check /opt/maysie/requirements.txt"
+    echo -e "  2. Virtual environment: ${GREEN}/opt/maysie/venv${NC}"
+    echo -e "  3. Service logs: ${GREEN}journalctl -u maysie.service${NC}"
+    echo -e "  4. DBus session: ${GREEN}echo \$DBUS_SESSION_BUS_ADDRESS${NC}"
     echo ""
     echo -e "${YELLOW}For more information, visit:${NC}"
     echo -e "${GREEN}https://github.com/Manjil740/maysie${NC}"
@@ -554,33 +721,13 @@ show_completion() {
 
 # Cleanup function
 cleanup() {
-    echo -e "${YELLOW}Cleaning up...${NC}"
-    # Add any cleanup tasks here
+    echo -e "${YELLOW}Cleaning up temporary files...${NC}"
+    rm -rf /tmp/pip-* 2>/dev/null || true
     echo -e "${GREEN}✓ Cleanup complete${NC}"
-}
-
-# Error handling
-handle_error() {
-    echo -e "${RED}================================================${NC}"
-    echo -e "${RED}  Installation Failed!${NC}"
-    echo -e "${RED}================================================${NC}"
-    echo ""
-    echo -e "${YELLOW}Error occurred at:${NC} $1"
-    echo -e "${YELLOW}Check the logs above for details.${NC}"
-    echo ""
-    echo -e "${YELLOW}Troubleshooting tips:${NC}"
-    echo -e "1. Ensure you have internet connectivity"
-    echo -e "2. Check if you have sufficient disk space"
-    echo -e "3. Verify your package manager is working"
-    echo -e "4. Run with debug: ${GREEN}bash -x install.sh${NC}"
-    echo ""
-    exit 1
 }
 
 # Main installation
 main() {
-    trap 'handle_error $LINENO' ERR
-    
     echo -e "${YELLOW}Starting Maysie installation...${NC}"
     echo ""
     
@@ -614,12 +761,17 @@ main() {
     setup_log_rotation
     echo ""
     
-    start_service
+    test_installation
     echo ""
     
-    show_completion
+    if start_service; then
+        show_completion
+    else
+        echo -e "${YELLOW}⚠ Service startup had issues${NC}"
+        echo -e "${YELLOW}  Please check the logs and run: sudo systemctl status maysie${NC}"
+        show_completion
+    fi
     
-    # Cleanup on success
     cleanup
 }
 
