@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+
+# Logs
+*.log
+
+# Secrets (DO NOT COMMIT)
+api_keys.enc
+config.yaml
+
+# OS
+.DS_Store
+Thumbs.db
