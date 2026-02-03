@@ -1,213 +1,238 @@
 """
-Maysie main service daemon
-Coordinates all components and handles the main event loop.
+Security utilities for Maysie
+Handles encryption, credential management, and secure operations.
 """
 
-import asyncio
-import socket
-import signal
-import sys
-import threading
+import os
+import hashlib
+import secrets
 from pathlib import Path
+from typing import Optional, Dict
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.backends import default_backend
 
 from maysie.utils.logger import get_logger
-from maysie.config import get_config
-from maysie.core.hotkey_listener import HotkeyListener
-from maysie.core.command_router import get_command_router
-from maysie.ui.popup import PopupUI
 
 logger = get_logger(__name__)
 
 
-class MaysieService:
-    """Main Maysie service"""
+class SecurityManager:
+    """Manages encryption and security operations"""
     
-    def __init__(self):
-        """Initialize service"""
-        self.config = get_config()
-        self.running = False
-        self.signal_port = 9999
-        self.signal_socket = None
-        
-        # Components
-        self.hotkey_listener = None
-        self.popup_ui = None
-        self.command_router = None
-        
-        # Web UI (lazy loaded)
-        self.web_ui = None
-    
-    async def start(self):
-        """Start all service components"""
-        logger.info("Starting Maysie service...")
-        
-        try:
-            # Initialize command router
-            self.command_router = get_command_router()
-            
-            # Initialize popup UI
-            self.popup_ui = PopupUI(self._handle_command)
-            self.popup_ui.start()
-            
-            # Start signal listener socket
-            await self._start_signal_listener()
-            
-            # Start hotkey listener
-            self.hotkey_listener = HotkeyListener(self.signal_port)
-            self.hotkey_listener.start()
-            
-            # Setup signal handlers
-            signal.signal(signal.SIGTERM, self._signal_handler)
-            signal.signal(signal.SIGINT, self._signal_handler)
-            
-            self.running = True
-            logger.info("✓ Maysie service started successfully")
-            
-            # Main event loop
-            await self._main_loop()
-        
-        except Exception as e:
-            logger.error(f"Failed to start service: {e}")
-            await self.stop()
-            raise
-    
-    async def _start_signal_listener(self):
-        """Start socket listener for hotkey signals"""
-        self.signal_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.signal_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.signal_socket.bind(('127.0.0.1', self.signal_port))
-        self.signal_socket.listen(5)
-        self.signal_socket.setblocking(False)
-        
-        logger.info(f"Signal listener on port {self.signal_port}")
-    
-    async def _main_loop(self):
-        """Main event loop"""
-        loop = asyncio.get_event_loop()
-        
-        while self.running:
-            try:
-                # Wait for signals with timeout
-                await asyncio.wait_for(
-                    loop.sock_accept(self.signal_socket),
-                    timeout=1.0
-                )
-                
-                # Hotkey was pressed
-                logger.debug("Hotkey signal received")
-                self._show_popup()
-            
-            except asyncio.TimeoutError:
-                # No signal, continue
-                continue
-            except Exception as e:
-                logger.error(f"Main loop error: {e}")
-                await asyncio.sleep(1)
-    
-    def _show_popup(self):
-        """Show popup window"""
-        if self.popup_ui:
-            self.popup_ui.show()
-    
-    async def _handle_command(self, command: str) -> str:
+    def __init__(self, key_file: Optional[Path] = None):
         """
-        Handle command from popup UI.
+        Initialize security manager.
         
         Args:
-            command: User command
+            key_file: Path to encryption key file
+        """
+        self.key_file = key_file or Path('/etc/maysie/.key')
+        self._cipher = None
+        self._initialize_cipher()
+    
+    def _initialize_cipher(self):
+        """Initialize or load encryption cipher"""
+        try:
+            if self.key_file.exists():
+                key = self.key_file.read_bytes()
+            else:
+                # Generate new key
+                key = Fernet.generate_key()
+                self._save_key(key)
+            
+            self._cipher = Fernet(key)
+            logger.info("Security manager initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize cipher: {e}")
+            # Fallback: use temporary key (in-memory only)
+            self._cipher = Fernet(Fernet.generate_key())
+            logger.warning("Using temporary encryption key (not persistent)")
+    
+    def _save_key(self, key: bytes):
+        """Save encryption key with proper permissions"""
+        try:
+            self.key_file.parent.mkdir(parents=True, exist_ok=True)
+            self.key_file.write_bytes(key)
+            os.chmod(self.key_file, 0o600)  # Read/write for owner only
+            logger.info(f"Encryption key saved to {self.key_file}")
+        except (PermissionError, OSError) as e:
+            logger.error(f"Cannot save encryption key: {e}")
+    
+    def encrypt(self, data: str) -> str:
+        """
+        Encrypt string data.
+        
+        Args:
+            data: Plain text to encrypt
             
         Returns:
-            Response string
+            Encrypted data as base64 string
         """
-        logger.info(f"Processing command: {command[:50]}...")
-        
         try:
-            # Check for debug mode activation
-            if command.startswith('enter debug mode'):
-                response = await self.command_router.route_command(command)
-                if response == "DEBUG_MODE_ACTIVATED":
-                    # Start web UI
-                    self._start_web_ui()
-                    return "✓ Debug mode activated. Opening http://localhost:7777"
-                return response
-            
-            # Route command
-            response = await self.command_router.route_command(command)
-            return response
-        
+            encrypted = self._cipher.encrypt(data.encode('utf-8'))
+            return encrypted.decode('utf-8')
         except Exception as e:
-            logger.error(f"Command handling failed: {e}")
-            return f"Error: {e}"
+            logger.error(f"Encryption failed: {e}")
+            raise
     
-    def _start_web_ui(self):
-        """Start web UI (lazy loaded)"""
-        if self.web_ui is None:
-            try:
-                from maysie.ui.debug_web import DebugWebUI
-                self.web_ui = DebugWebUI()
-                
-                # Start in thread
-                threading.Thread(
-                    target=self.web_ui.start,
-                    daemon=True
-                ).start()
-                
-                logger.info("Web UI started")
-            except Exception as e:
-                logger.error(f"Failed to start web UI: {e}")
+    def decrypt(self, encrypted_data: str) -> str:
+        """
+        Decrypt string data.
+        
+        Args:
+            encrypted_data: Encrypted base64 string
+            
+        Returns:
+            Decrypted plain text
+        """
+        try:
+            decrypted = self._cipher.decrypt(encrypted_data.encode('utf-8'))
+            return decrypted.decode('utf-8')
+        except Exception as e:
+            logger.error(f"Decryption failed: {e}")
+            raise
     
-    def _signal_handler(self, signum, frame):
-        """Handle termination signals"""
-        logger.info(f"Received signal {signum}, shutting down...")
-        self.running = False
+    @staticmethod
+    def hash_password(password: str, salt: Optional[bytes] = None) -> tuple[str, str]:
+        """
+        Hash password using PBKDF2.
+        
+        Args:
+            password: Plain text password
+            salt: Optional salt (generated if not provided)
+            
+        Returns:
+            Tuple of (hashed_password, salt) as hex strings
+        """
+        if salt is None:
+            salt = secrets.token_bytes(32)
+        
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+            backend=default_backend()
+        )
+        
+        key = kdf.derive(password.encode('utf-8'))
+        return key.hex(), salt.hex()
     
-    async def stop(self):
-        """Stop all service components"""
-        logger.info("Stopping Maysie service...")
+    @staticmethod
+    def verify_password(password: str, hashed: str, salt: str) -> bool:
+        """
+        Verify password against hash.
         
-        self.running = False
-        
-        # Stop hotkey listener
-        if self.hotkey_listener:
-            self.hotkey_listener.stop()
-        
-        # Stop popup UI
-        if self.popup_ui:
-            self.popup_ui.stop()
-        
-        # Close signal socket
-        if self.signal_socket:
-            self.signal_socket.close()
-        
-        # Stop web UI
-        if self.web_ui:
-            self.web_ui.stop()
-        
-        logger.info("✓ Maysie service stopped")
+        Args:
+            password: Plain text password to verify
+            hashed: Hashed password (hex string)
+            salt: Salt used for hashing (hex string)
+            
+        Returns:
+            True if password matches
+        """
+        try:
+            computed_hash, _ = SecurityManager.hash_password(
+                password, 
+                bytes.fromhex(salt)
+            )
+            return secrets.compare_digest(computed_hash, hashed)
+        except Exception as e:
+            logger.error(f"Password verification failed: {e}")
+            return False
+    
+    @staticmethod
+    def generate_token(length: int = 32) -> str:
+        """Generate cryptographically secure random token"""
+        return secrets.token_urlsafe(length)
 
 
-async def main():
-    """Main entry point"""
-    # Setup logging
-    import logging
-    from maysie.utils.logger import MaysieLogger
+class CredentialStore:
+    """Secure storage for API keys and credentials"""
     
-    # Check for debug flag
-    debug = '--debug' in sys.argv
-    if debug:
-        MaysieLogger.set_level(logging.DEBUG)
-        logger.info("Debug mode enabled")
+    def __init__(self, storage_file: Path, security_mgr: SecurityManager):
+        """
+        Initialize credential store.
+        
+        Args:
+            storage_file: Path to encrypted storage file
+            security_mgr: SecurityManager instance for encryption
+        """
+        self.storage_file = storage_file
+        self.security_mgr = security_mgr
+        self._credentials: Dict[str, str] = {}
+        self._load()
     
-    # Create and start service
-    service = MaysieService()
+    def _load(self):
+        """Load and decrypt credentials from file"""
+        try:
+            if self.storage_file.exists():
+                encrypted_data = self.storage_file.read_text()
+                if encrypted_data.strip():
+                    decrypted = self.security_mgr.decrypt(encrypted_data)
+                    # Parse key=value format
+                    for line in decrypted.split('\n'):
+                        if '=' in line:
+                            key, value = line.split('=', 1)
+                            self._credentials[key.strip()] = value.strip()
+                logger.info(f"Loaded {len(self._credentials)} credentials")
+        except Exception as e:
+            logger.error(f"Failed to load credentials: {e}")
+            self._credentials = {}
     
-    try:
-        await service.start()
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received")
-    finally:
-        await service.stop()
+    def _save(self):
+        """Encrypt and save credentials to file"""
+        try:
+            # Convert to key=value format
+            data = '\n'.join(f"{k}={v}" for k, v in self._credentials.items())
+            encrypted = self.security_mgr.encrypt(data)
+            
+            self.storage_file.parent.mkdir(parents=True, exist_ok=True)
+            self.storage_file.write_text(encrypted)
+            os.chmod(self.storage_file, 0o600)
+            logger.info(f"Saved {len(self._credentials)} credentials")
+        except Exception as e:
+            logger.error(f"Failed to save credentials: {e}")
+    
+    def set(self, key: str, value: str):
+        """Store a credential"""
+        self._credentials[key] = value
+        self._save()
+    
+    def get(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Retrieve a credential"""
+        return self._credentials.get(key, default)
+    
+    def delete(self, key: str):
+        """Delete a credential"""
+        if key in self._credentials:
+            del self._credentials[key]
+            self._save()
+    
+    def list_keys(self) -> list[str]:
+        """List all credential keys (not values)"""
+        return list(self._credentials.keys())
 
 
-if __name__ == '__main__':
-    asyncio.run(main())
+# Module-level convenience functions
+_global_security_mgr: Optional[SecurityManager] = None
+
+
+def get_security_manager() -> SecurityManager:
+    """Get global security manager instance"""
+    global _global_security_mgr
+    if _global_security_mgr is None:
+        _global_security_mgr = SecurityManager()
+    return _global_security_mgr
+
+
+def encrypt_data(data: str) -> str:
+    """Encrypt data using global security manager"""
+    return get_security_manager().encrypt(data)
+
+
+def decrypt_data(encrypted_data: str) -> str:
+    """Decrypt data using global security manager"""
+    return get_security_manager().decrypt(encrypted_data)

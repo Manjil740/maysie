@@ -38,7 +38,7 @@ class BaseAIProvider(ABC):
         Returns:
             AI response as string
         """
-        pass
+        raise NotImplementedError()
     
     @abstractmethod
     def validate_credentials(self) -> bool:
@@ -48,7 +48,7 @@ class BaseAIProvider(ABC):
         Returns:
             True if credentials are valid
         """
-        pass
+        raise NotImplementedError()
     
     def is_configured(self) -> bool:
         """

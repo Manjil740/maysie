@@ -24,7 +24,7 @@ All while respecting the **least‑privilege security model**.
 
 ### 🎯 Global Hotkey
 
-* Press **`Super + Alt + A`** to open a lightweight popup
+* Press **`Ctrl + Alt + L`** (default) to open a lightweight popup
 * Type or speak commands naturally
 
 ### 🧠 Smart AI Routing
